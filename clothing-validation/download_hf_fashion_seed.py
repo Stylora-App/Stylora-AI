@@ -9,6 +9,19 @@ from PIL import Image
 
 ALLOWED_GENDERS = {"Men", "Women", "Unisex"}
 ALLOWED_MASTER_CATEGORIES = {"Apparel", "Footwear", "Accessories"}
+EXCLUDED_USAGES = {"Ethnic"}
+EXCLUDED_ARTICLE_TYPES = {
+    "Churidar",
+    "Dupatta",
+    "Kurta Sets",
+    "Kurtas",
+    "Kurtis",
+    "Nehru Jackets",
+    "Patiala",
+    "Salwar",
+    "Salwar and Dupatta",
+    "Saree",
+}
 OUTPUT_COLUMNS = [
     "id",
     "gender",
@@ -83,9 +96,17 @@ def export_dataset(dataset_name: str, split: str, output_dir: Path, limit: int) 
         for row in dataset:
             gender = normalize_value(row.get("gender"))
             master_category = normalize_value(row.get("masterCategory"))
+            usage = normalize_value(row.get("usage"))
+            article_type = normalize_value(row.get("articleType"))
             image = row.get("image")
 
-            if gender not in ALLOWED_GENDERS or master_category not in ALLOWED_MASTER_CATEGORIES or image is None:
+            if (
+                gender not in ALLOWED_GENDERS
+                or master_category not in ALLOWED_MASTER_CATEGORIES
+                or usage in EXCLUDED_USAGES
+                or article_type in EXCLUDED_ARTICLE_TYPES
+                or image is None
+            ):
                 skipped += 1
                 continue
 
@@ -103,10 +124,12 @@ def export_dataset(dataset_name: str, split: str, output_dir: Path, limit: int) 
                     "gender": gender.lower(),
                     "masterCategory": master_category.lower(),
                     "subCategory": normalize_value(row.get("subCategory")).lower(),
-                    "articleType": normalize_value(row.get("articleType")).lower(),
-                    "baseColour": normalize_value(row.get("baseColour")).lower(),
+                    "articleType": article_type.lower(),
+                    # Source colour tags from this dataset are too noisy for the validator,
+                    # so the seed keeps the column for compatibility but strips the value.
+                    "baseColour": "",
                     "season": normalize_value(row.get("season")).lower(),
-                    "usage": normalize_value(row.get("usage")).lower(),
+                    "usage": usage.lower(),
                     "productDisplayName": normalize_value(row.get("productDisplayName")),
                     "sourceDataset": dataset_name,
                     "imagePath": image_path.name,
