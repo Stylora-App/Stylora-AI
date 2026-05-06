@@ -14,10 +14,16 @@ STYLE_BY_OCCASION = {
     "brunch": "casual",
     "errands": "casual",
     "weekend": "casual",
+    "trip": "casual",
+    "travel": "casual",
+    "vacation": "casual",
+    "holiday": "casual",
+    "flight": "casual",
     "work": "office",
     "office": "office",
     "meeting": "office",
     "interview": "formal",
+    "conference": "formal",
     "theatre": "elegant",
     "theater": "elegant",
     "film": "elegant",
@@ -186,7 +192,7 @@ def normalize_payload(payload):
     else:
         style_bucket = None
 
-    return {
+    normalized = {
         "intent": payload.get("intent") or "generate_outfit",
         "is_in_scope": bool(payload.get("is_in_scope", True)),
         "occasion_text": payload.get("occasion_text"),
@@ -200,6 +206,9 @@ def normalize_payload(payload):
         "shuffle_count": int(payload.get("shuffle_count") or 0),
         "parser_source": payload.get("parser_source") or "gemma",
     }
+    if not normalized["date_context"]:
+        normalized["date_context"] = "today"
+    return normalized
 
 
 def heuristic_parse(messages):
@@ -226,7 +235,7 @@ def heuristic_parse(messages):
         }
 
     full_text = " ".join(user_messages).lower()
-    if not any(keyword in full_text for keyword in SCOPE_KEYWORDS):
+    if not has_outfit_signals(" ".join(user_messages)):
         return {
             "intent": "out_of_scope",
             "is_in_scope": False,
@@ -291,8 +300,24 @@ def heuristic_parse(messages):
                 result["date_context"] = keyword
                 break
 
+    if not result["date_context"]:
+        result["date_context"] = "today"
+
     result["intent"] = "shuffle_outfit" if result["shuffle_count"] > 0 else "generate_outfit"
     return result
+
+
+def has_outfit_signals(message):
+    lowered = message.lower()
+    return (
+        any(keyword in lowered for keyword in SCOPE_KEYWORDS)
+        or any(style in lowered for style in ALLOWED_STYLES)
+        or any(occasion in lowered for occasion in STYLE_BY_OCCASION)
+        or any(keyword in lowered for keyword in WEATHER_STATUS_KEYWORDS)
+        or any(keyword in lowered for keyword in DATE_KEYWORDS)
+        or any(word in lowered for word in ["cold", "cool", "warm", "hot"])
+        or bool(extract_location(message))
+    )
 
 
 def extract_weather(message):
@@ -359,32 +384,42 @@ def split_message_segments(message):
 
 
 def extract_location_after_preposition(message):
-    return extract_location_after_keyword(message, "in") or extract_location_after_keyword(message, "for")
+    return (
+        extract_location_after_keyword(message, "in")
+        or extract_location_after_keyword(message, "to")
+        or extract_location_after_keyword(message, "for")
+    )
 
 
 def extract_location_after_keyword(message, keyword):
-    match = re.search(rf"\b{keyword}\b\s+(.+)", message, flags=re.IGNORECASE)
-    if not match:
-        return None
+    matches = re.finditer(
+        rf"\b{keyword}\b\s+(.+?)(?=(?:\b(?:in|to|for)\b\s+)|$)",
+        message,
+        flags=re.IGNORECASE,
+    )
 
-    tail = match.group(1).strip()
-    if not tail:
-        return None
-
-    candidate_words = []
-    for raw_word in tail.split():
-        cleaned_word = raw_word.strip(",.!?;:")
-        if not cleaned_word:
+    for match in reversed(list(matches)):
+        tail = match.group(1).strip()
+        if not tail:
             continue
-        if cleaned_word.lower() in LOCATION_STOP_WORDS:
-            break
-        if not re.match(r"^[A-Za-z-]+$", cleaned_word):
-            break
-        candidate_words.append(cleaned_word)
-        if len(candidate_words) == 4:
-            break
 
-    return " ".join(candidate_words) if candidate_words else None
+        candidate_words = []
+        for raw_word in tail.split():
+            cleaned_word = raw_word.strip(",.!?;:")
+            if not cleaned_word:
+                continue
+            if cleaned_word.lower() in LOCATION_STOP_WORDS:
+                break
+            if not re.match(r"^[A-Za-z-]+$", cleaned_word):
+                break
+            candidate_words.append(cleaned_word)
+            if len(candidate_words) == 4:
+                break
+
+        if candidate_words:
+            return " ".join(candidate_words)
+
+    return None
 
 
 def thermal_band_from_temperature(temperature_c):
