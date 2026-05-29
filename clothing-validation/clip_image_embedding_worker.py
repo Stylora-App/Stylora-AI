@@ -121,7 +121,7 @@ def main():
     model, processor = load_worker(args.model_id)
     projection_dim = getattr(model.config, "projection_dim", 512)
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), EmbeddingRequestHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), EmbeddingRequestHandler)
     server.model = model
     server.processor = processor
     server.projection_dim = projection_dim

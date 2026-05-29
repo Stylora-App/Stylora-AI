@@ -492,7 +492,7 @@ def main():
         temperature=args.temperature,
     )
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), RequestHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), RequestHandler)
     LOGGER.info("Gemma intent worker listening on port %s", args.port)
     server.serve_forever()
 
