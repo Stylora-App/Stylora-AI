@@ -1,0 +1,291 @@
+openapi: 3.0.3
+info:
+  title: Stylora AI Workers
+  version: "1.0"
+  description: >
+    Internal HTTP APIs exposed by the two Python AI workers.
+    These are **not** public endpoints — they are called only by the backend service
+    over the Docker internal network.
+
+    Both workers start in an "initializing" state while the model loads.
+    Poll `GET /health` until `ready: true` before sending inference requests.
+
+servers:
+  - url: http://ai-clip:8001
+    description: CLIP image embedding worker (Docker)
+  - url: http://ai-gemma:8002
+    description: Gemma intent parsing worker (Docker)
+  - url: http://localhost:8001
+    description: CLIP worker (local dev)
+  - url: http://localhost:8002
+    description: Gemma worker (local dev)
+
+tags:
+  - name: CLIP
+    description: >
+      Clothing image embedding service.
+      Runs `openai/clip-vit-base-patch32` to produce 512-dimensional cosine-normalised
+      vectors used for nearest-neighbour clothing validation.
+  - name: Gemma
+    description: >
+      Outfit intent parsing service.
+      Runs `google/gemma-4-26B-A4B-it` (or any model passed via `--model-id`).
+      Falls back to heuristic parsing if the model fails to load.
+
+components:
+  schemas:
+    # ── CLIP ─────────────────────────────────────────────────────────────────
+    ClipHealthResponse:
+      type: object
+      properties:
+        ready:
+          type: boolean
+          description: True once the model is loaded and ready to serve requests.
+        dimensions:
+          type: integer
+          example: 512
+          description: Embedding vector length (matches `EmbeddingDimensions` in backend config).
+
+    EmbedRequest:
+      type: object
+      required: [imageBase64]
+      properties:
+        mimeType:
+          type: string
+          default: image/jpeg
+          example: image/jpeg
+          description: MIME type of the image (informational; not used for decoding).
+        imageBase64:
+          type: string
+          description: Raw base64-encoded image bytes (no data-URI prefix).
+
+    EmbedResponse:
+      type: object
+      properties:
+        embedding:
+          type: array
+          items: { type: number, format: float }
+          description: L2-normalised CLIP image embedding vector.
+        error:
+          type: string
+          nullable: true
+          description: Present only on failure (status 400).
+
+    # ── Gemma ─────────────────────────────────────────────────────────────────
+    GemmaHealthResponse:
+      type: object
+      properties:
+        ready:
+          type: boolean
+          description: >
+            True once the worker is ready (either the model loaded successfully
+            or it fell back to heuristic mode).
+        mode:
+          type: string
+          enum: [initializing, gemma, heuristic]
+          description: >
+            `gemma` — model is loaded and being used.
+            `heuristic` — model failed to load; regex/keyword fallback is active.
+            `initializing` — model is still loading.
+        error:
+          type: string
+          nullable: true
+          description: Load error message when `mode` is `heuristic`.
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+
+    ParseRequest:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/ChatMessage' }
+          description: Full conversation history, oldest first.
+        modelId:
+          type: string
+          description: Override the loaded model ID (informational; passed through but not reloaded).
+        maxNewTokens:
+          type: integer
+          default: 220
+        temperature:
+          type: number
+          format: float
+          default: 0.1
+
+    IntentResult:
+      type: object
+      properties:
+        intent:
+          type: string
+          enum: [generate_outfit, shuffle_outfit, clarify_request, out_of_scope]
+        is_in_scope:
+          type: boolean
+        occasion_text:
+          type: string
+          nullable: true
+          example: dinner
+        style_bucket:
+          type: string
+          nullable: true
+          enum: [casual, office, sport, elegant, bohemian, streetwear, formal, "null"]
+        location:
+          type: string
+          nullable: true
+          example: Paris
+        date_context:
+          type: string
+          nullable: true
+          example: tonight
+        weather_summary:
+          type: string
+          nullable: true
+          example: "rainy, 12C"
+        weather_status:
+          type: string
+          nullable: true
+          enum: [sunny, cloudy, rainy, windy, snowy, stormy]
+        temperature_c:
+          type: number
+          format: float
+          nullable: true
+        constraints:
+          type: array
+          items: { type: string }
+          description: Short style constraint phrases extracted from the user message.
+          example: ["warmer", "more casual"]
+        shuffle_count:
+          type: integer
+          description: Number of shuffle requests implied by the conversation.
+          default: 0
+        parser_source:
+          type: string
+          enum: [gemma, heuristic, empty]
+
+    ParseResponse:
+      type: object
+      properties:
+        result:
+          $ref: '#/components/schemas/IntentResult'
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    ShutdownResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+
+paths:
+  # ── CLIP ──────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      tags: [CLIP, Gemma]
+      summary: Health / readiness check
+      description: >
+        Returns the worker's readiness state. Poll this on startup until
+        `ready: true`. The response schema differs slightly between workers —
+        CLIP returns `dimensions`, Gemma returns `mode` and `error`.
+      responses:
+        "200":
+          description: Worker status (always 200, even while initializing).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ClipHealthResponse'
+                  - $ref: '#/components/schemas/GemmaHealthResponse'
+
+  /embed:
+    post:
+      tags: [CLIP]
+      summary: Embed a clothing image using CLIP
+      description: >
+        Accepts a base64 image and returns a 512-dimensional L2-normalised
+        embedding vector. Used by the backend for clothing validation and
+        reference-dataset seeding.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmbedRequest' }
+            example:
+              mimeType: image/jpeg
+              imageBase64: "/9j/4AAQSkZJRgAB..."
+      responses:
+        "200":
+          description: Embedding produced successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmbedResponse' }
+        "400":
+          description: Image could not be decoded or processed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmbedResponse' }
+
+  /parse:
+    post:
+      tags: [Gemma]
+      summary: Parse outfit intent from a conversation
+      description: >
+        Accepts the full conversation history and returns a structured intent
+        object. If the Gemma model is unavailable the worker falls back to
+        heuristic regex/keyword parsing automatically — the response shape is
+        identical; only `parser_source` will differ (`"heuristic"` vs `"gemma"`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ParseRequest' }
+            example:
+              messages:
+                - role: user
+                  content: "I need an outfit for a rainy evening dinner in Paris"
+      responses:
+        "200":
+          description: Intent parsed successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParseResponse' }
+              example:
+                result:
+                  intent: generate_outfit
+                  is_in_scope: true
+                  occasion_text: dinner
+                  style_bucket: elegant
+                  location: Paris
+                  date_context: tonight
+                  weather_summary: "rainy"
+                  weather_status: rainy
+                  temperature_c: null
+                  constraints: []
+                  shuffle_count: 0
+                  parser_source: gemma
+        "500":
+          description: Unexpected parsing failure.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParseResponse' }
+
+  /shutdown:
+    post:
+      tags: [CLIP, Gemma]
+      summary: Gracefully shut down the worker process
+      description: >
+        Signals the HTTP server to stop. The process exits after the response
+        is sent. Used by the backend when it disposes the worker service.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShutdownResponse' }
