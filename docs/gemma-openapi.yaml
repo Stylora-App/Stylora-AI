@@ -1,0 +1,177 @@
+openapi: 3.0.3
+info:
+  title: Stylora Gemma Intent Worker
+  version: "1.0"
+  description: >
+    Internal HTTP API for the Gemma outfit intent parsing worker.
+    Called only by the backend service over the Docker internal network.
+    Poll GET /health until ready:true before sending parse requests.
+    Falls back to heuristic parsing if the model fails to load — parser_source
+    in the response indicates which path was used.
+
+servers:
+  - url: http://ai-gemma:8002
+    description: Docker internal
+  - url: http://localhost:8002
+    description: Local dev
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        ready:
+          type: boolean
+          description: >
+            True once the worker is ready (model loaded or heuristic fallback active).
+        mode:
+          type: string
+          enum: [initializing, gemma, heuristic]
+          description: >
+            gemma — model loaded. heuristic — model failed, fallback active.
+            initializing — model still loading.
+        error:
+          type: string
+          nullable: true
+          description: Load error when mode is heuristic.
+
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+
+    ParseRequest:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+          description: Full conversation history, oldest first.
+        modelId:
+          type: string
+          description: Informational override; model is not reloaded at request time.
+        maxNewTokens:
+          type: integer
+          default: 220
+        temperature:
+          type: number
+          format: float
+          default: 0.1
+
+    IntentResult:
+      type: object
+      properties:
+        intent:
+          type: string
+          enum: [generate_outfit, shuffle_outfit, clarify_request, out_of_scope]
+        is_in_scope:
+          type: boolean
+        occasion_text:
+          type: string
+          nullable: true
+        style_bucket:
+          type: string
+          nullable: true
+          enum: [casual, office, sport, elegant, bohemian, streetwear, formal]
+        location:
+          type: string
+          nullable: true
+        date_context:
+          type: string
+          nullable: true
+        weather_summary:
+          type: string
+          nullable: true
+        weather_status:
+          type: string
+          nullable: true
+          enum: [sunny, cloudy, rainy, windy, snowy, stormy]
+        temperature_c:
+          type: number
+          format: float
+          nullable: true
+        constraints:
+          type: array
+          items:
+            type: string
+        shuffle_count:
+          type: integer
+          default: 0
+        parser_source:
+          type: string
+          enum: [gemma, heuristic, empty]
+
+    ParseResponse:
+      type: object
+      properties:
+        result:
+          $ref: '#/components/schemas/IntentResult'
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    ShutdownResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+
+paths:
+  /health:
+    get:
+      operationId: GetHealth
+      summary: Readiness check
+      responses:
+        "200":
+          description: Worker status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /parse:
+    post:
+      operationId: Parse
+      summary: Parse outfit intent from a conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParseRequest'
+            example:
+              messages:
+                - role: user
+                  content: "I need an outfit for a rainy evening dinner in Paris"
+      responses:
+        "200":
+          description: Intent parsed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseResponse'
+        "500":
+          description: Unexpected failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ParseResponse'
+
+  /shutdown:
+    post:
+      operationId: Shutdown
+      summary: Gracefully shut down the worker
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShutdownResponse'

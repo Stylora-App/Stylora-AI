@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: Stylora CLIP Embedding Worker
+  version: "1.0"
+  description: >
+    Internal HTTP API for the CLIP image embedding worker.
+    Called only by the backend service over the Docker internal network.
+    Poll GET /health until ready:true before sending embed requests.
+
+servers:
+  - url: http://ai-clip:8001
+    description: Docker internal
+  - url: http://localhost:8001
+    description: Local dev
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        ready:
+          type: boolean
+          description: True once the model is loaded.
+        dimensions:
+          type: integer
+          example: 512
+          description: Embedding vector length.
+
+    EmbedRequest:
+      type: object
+      required: [imageBase64]
+      properties:
+        mimeType:
+          type: string
+          default: image/jpeg
+          example: image/jpeg
+        imageBase64:
+          type: string
+          description: Raw base64-encoded image bytes (no data-URI prefix).
+
+    EmbedResponse:
+      type: object
+      properties:
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: L2-normalised 512-dimensional CLIP embedding vector.
+        error:
+          type: string
+          nullable: true
+
+    ShutdownResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+
+paths:
+  /health:
+    get:
+      operationId: GetHealth
+      summary: Readiness check
+      responses:
+        "200":
+          description: Worker status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /embed:
+    post:
+      operationId: Embed
+      summary: Embed a clothing image using CLIP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbedRequest'
+      responses:
+        "200":
+          description: Embedding produced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbedResponse'
+        "400":
+          description: Image could not be decoded or processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbedResponse'
+
+  /shutdown:
+    post:
+      operationId: Shutdown
+      summary: Gracefully shut down the worker
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShutdownResponse'

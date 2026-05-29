@@ -4,9 +4,23 @@ import contextlib
 import io
 import json
 import os
+import pathlib
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+SWAGGER_UI_HTML = b"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<title>CLIP Embedding Worker</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head><body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+SwaggerUIBundle({url:"/openapi.yaml",dom_id:"#swagger-ui",
+presets:[SwaggerUIBundle.presets.apis,SwaggerUIBundle.SwaggerUIStandalonePreset],
+layout:"BaseLayout"})
+</script></body></html>"""
 
 import torch
 from PIL import Image
@@ -74,11 +88,19 @@ class EmbeddingRequestHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):
-        if self.path != "/health":
-            self._send_json(404, {"error": "Not found"})
+        if self.path == "/health":
+            self._send_json(200, {"ready": True, "dimensions": self.server.projection_dim})
             return
 
-        self._send_json(200, {"ready": True, "dimensions": self.server.projection_dim})
+        if self.server.dev:
+            if self.path == "/openapi.yaml":
+                self._send_spec()
+                return
+            if self.path == "/docs":
+                self._send_bytes(200, SWAGGER_UI_HTML, "text/html; charset=utf-8")
+                return
+
+        self._send_json(404, {"error": "Not found"})
 
     def do_POST(self):
         if self.path == "/shutdown":
@@ -103,28 +125,46 @@ class EmbeddingRequestHandler(BaseHTTPRequestHandler):
         return json.loads(body.decode("utf-8"))
 
     def _send_json(self, status_code: int, payload: dict):
-        response = json.dumps(payload).encode("utf-8")
+        self._send_bytes(status_code, json.dumps(payload).encode("utf-8"), "application/json")
+
+    def _send_bytes(self, status_code: int, body: bytes, content_type: str):
         self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response)))
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(response)
+        self.wfile.write(body)
+
+    def _send_spec(self):
+        spec_file = self.server.spec_file
+        if not spec_file.exists():
+            self._send_json(404, {"error": f"Spec file not found: {spec_file}"})
+            return
+        self._send_bytes(200, spec_file.read_bytes(), "text/yaml; charset=utf-8")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--dev", action="store_true", help="Enable /docs and /openapi.yaml routes")
     args = parser.parse_args()
 
     model, processor = load_worker(args.model_id)
     projection_dim = getattr(model.config, "projection_dim", 512)
 
+    spec_file = pathlib.Path(__file__).parent.parent / "docs" / "clip-openapi.yaml"
+
     server = ThreadingHTTPServer(("0.0.0.0", args.port), EmbeddingRequestHandler)
     server.model = model
     server.processor = processor
     server.projection_dim = projection_dim
+    server.dev = args.dev
+    server.spec_file = spec_file
+
+    if args.dev:
+        print(f"Dev mode: Swagger UI at http://0.0.0.0:{args.port}/docs")
+
     server.serve_forever()
 
 

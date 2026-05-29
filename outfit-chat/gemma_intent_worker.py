@@ -2,10 +2,23 @@ import argparse
 import json
 import logging
 import os
+import pathlib
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+SWAGGER_UI_HTML = b"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<title>Gemma Intent Worker</title>
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
+</head><body>
+<div id="swagger-ui"></div>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+SwaggerUIBundle({url:"/openapi.yaml",dom_id:"#swagger-ui",
+presets:[SwaggerUIBundle.presets.apis,SwaggerUIBundle.SwaggerUIStandalonePreset],
+layout:"BaseLayout"})
+</script></body></html>"""
 
 LOGGER = logging.getLogger("gemma_intent_worker")
 STYLE_BY_OCCASION = {
@@ -438,17 +451,34 @@ class RequestHandler(BaseHTTPRequestHandler):
     engine = None
 
     def _json(self, status_code, payload):
-        body = json.dumps(payload).encode("utf-8")
+        self._send_bytes(status_code, json.dumps(payload).encode("utf-8"), "application/json")
+
+    def _send_bytes(self, status_code: int, body: bytes, content_type: str):
         self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_spec(self):
+        spec_file = self.server.spec_file
+        if not spec_file.exists():
+            self._json(404, {"error": f"Spec file not found: {spec_file}"})
+            return
+        self._send_bytes(200, spec_file.read_bytes(), "text/yaml; charset=utf-8")
 
     def do_GET(self):
         if self.path == "/health":
             self._json(200, {"ready": self.engine.ready, "mode": self.engine.mode, "error": self.engine.error})
             return
+
+        if self.server.dev:
+            if self.path == "/openapi.yaml":
+                self._send_spec()
+                return
+            if self.path == "/docs":
+                self._send_bytes(200, SWAGGER_UI_HTML, "text/html; charset=utf-8")
+                return
 
         self._json(404, {"error": "Not found"})
 
@@ -482,9 +512,12 @@ def main():
     parser.add_argument("--model-id", default=os.environ.get("GEMMA_MODEL_ID", "google/gemma-4-26B-A4B-it"))
     parser.add_argument("--max-new-tokens", type=int, default=220)
     parser.add_argument("--temperature", type=float, default=0.1)
+    parser.add_argument("--dev", action="store_true", help="Enable /docs and /openapi.yaml routes")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    spec_file = pathlib.Path(__file__).parent.parent / "docs" / "gemma-openapi.yaml"
 
     RequestHandler.engine = GemmaIntentEngine(
         model_id=args.model_id,
@@ -493,7 +526,13 @@ def main():
     )
 
     server = ThreadingHTTPServer(("0.0.0.0", args.port), RequestHandler)
+    server.dev = args.dev
+    server.spec_file = spec_file
+
     LOGGER.info("Gemma intent worker listening on port %s", args.port)
+    if args.dev:
+        LOGGER.info("Dev mode: Swagger UI at http://0.0.0.0:%s/docs", args.port)
+
     server.serve_forever()
 
 
