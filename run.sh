@@ -9,7 +9,8 @@
 #   CLIP_PORT       default 8001
 #   GEMMA_PORT      default 8002
 #   CLIP_MODEL      default openai/clip-vit-base-patch32
-#   GEMMA_MODEL     default google/gemma-4-26B-A4B-it
+#   GEMMA_MODEL     default Qwen/Qwen2.5-3B-Instruct (CPU-friendly, ~6 GB)
+#                   set to google/gemma-4-26B-A4B-it for the full model (needs CUDA GPU, ~13 GB VRAM)
 #   PYTHON          default python3 (or .venv/bin/python if venv exists)
 set -euo pipefail
 
@@ -18,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLIP_PORT="${CLIP_PORT:-8001}"
 GEMMA_PORT="${GEMMA_PORT:-8002}"
 CLIP_MODEL="${CLIP_MODEL:-openai/clip-vit-base-patch32}"
-GEMMA_MODEL="${GEMMA_MODEL:-google/gemma-4-26B-A4B-it}"
+GEMMA_MODEL="${GEMMA_MODEL:-Qwen/Qwen2.5-3B-Instruct}"
 
 DEV_FLAG=""
 for arg in "$@"; do

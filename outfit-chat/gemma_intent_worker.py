@@ -123,14 +123,11 @@ class GemmaIntentEngine:
     def _load_model(self):
         try:
             from transformers import AutoModelForCausalLM, AutoProcessor
+            import torch
 
             LOGGER.info("Loading Gemma model %s", self.model_id)
             self.processor = AutoProcessor.from_pretrained(self.model_id)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_id,
-                dtype="auto",
-                device_map="auto"
-            )
+            self.model = self._load_model_best_effort()
             self.mode = "gemma"
             self.ready = True
             LOGGER.info("Gemma model loaded.")
@@ -139,6 +136,32 @@ class GemmaIntentEngine:
             self.mode = "heuristic"
             self.ready = True
             LOGGER.warning("Gemma load failed, using heuristic fallback: %s", exc)
+
+    def _load_model_best_effort(self):
+        from transformers import AutoModelForCausalLM
+        import torch
+
+        # Strategy 1: 4-bit quantization — needs a CUDA GPU, ~13 GB VRAM for the 26B MoE model.
+        if torch.cuda.is_available():
+            from transformers import BitsAndBytesConfig
+            LOGGER.info("CUDA available — loading with 4-bit quantization.")
+            return AutoModelForCausalLM.from_pretrained(
+                self.model_id,
+                device_map="auto",
+                quantization_config=BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                ),
+            )
+
+        # Strategy 2: CPU, float16 — needs ~52 GB RAM for the 26B model; fine for smaller models.
+        LOGGER.info("No CUDA GPU detected — loading on CPU with float16.")
+        return AutoModelForCausalLM.from_pretrained(
+            self.model_id,
+            torch_dtype=torch.float16,
+            device_map="cpu",
+            low_cpu_mem_usage=True,
+        )
 
     def parse(self, messages):
         if self.mode == "gemma" and self.processor is not None and self.model is not None:
@@ -509,7 +532,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--model-id", default=os.environ.get("GEMMA_MODEL_ID", "google/gemma-4-26B-A4B-it"))
+    parser.add_argument("--model-id", default=os.environ.get("GEMMA_MODEL_ID", "google/gemma-3-4b-it"))
     parser.add_argument("--max-new-tokens", type=int, default=220)
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--dev", action="store_true", help="Enable /docs and /openapi.yaml routes")

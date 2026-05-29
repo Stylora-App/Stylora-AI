@@ -11,10 +11,6 @@ info:
     Poll `GET /health` until `ready: true` before sending inference requests.
 
 servers:
-  - url: http://ai-clip:8001
-    description: CLIP image embedding worker (Docker)
-  - url: http://ai-gemma:8002
-    description: Gemma intent parsing worker (Docker)
   - url: http://localhost:8001
     description: CLIP worker (local dev)
   - url: http://localhost:8002

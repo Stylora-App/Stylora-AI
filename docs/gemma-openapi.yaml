@@ -10,8 +10,6 @@ info:
     in the response indicates which path was used.
 
 servers:
-  - url: http://ai-gemma:8002
-    description: Docker internal
   - url: http://localhost:8002
     description: Local dev
 

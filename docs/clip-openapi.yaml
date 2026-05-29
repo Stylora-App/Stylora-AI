@@ -8,8 +8,6 @@ info:
     Poll GET /health until ready:true before sending embed requests.
 
 servers:
-  - url: http://ai-clip:8001
-    description: Docker internal
   - url: http://localhost:8001
     description: Local dev
 
