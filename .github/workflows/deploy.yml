@@ -1,0 +1,142 @@
+name: Build and Deploy AI Workers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clothing-validation/**'
+      - 'outfit-chat/**'
+      - 'Dockerfile.clip'
+      - 'Dockerfile.gemma'
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      clip: ${{ steps.filter.outputs.clip }}
+      gemma: ${{ steps.filter.outputs.gemma }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            clip:
+              - 'clothing-validation/**'
+              - 'Dockerfile.clip'
+            gemma:
+              - 'outfit-chat/**'
+              - 'Dockerfile.gemma'
+
+  build-clip:
+    name: Build and push CLIP image
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.clip == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-clip
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.clip
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-clip:latest
+          cache-to: type=inline
+
+  build-gemma:
+    name: Build and push Gemma image
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.gemma == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-gemma
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.gemma
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-gemma:latest
+          cache-to: type=inline
+
+  deploy:
+    name: Deploy changed workers to Server
+    runs-on: ubuntu-latest
+    needs: [changes, build-clip, build-gemma]
+    if: |
+      always() &&
+      !failure() &&
+      (needs.changes.outputs.clip == 'true' || needs.changes.outputs.gemma == 'true')
+    environment: production
+    steps:
+      - name: Recreate changed worker container(s)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_CLIP,DEPLOY_GEMMA
+          script: |
+            set -euo pipefail
+            cd ${{ secrets.VPS_DEPLOY_PATH }}
+            source .env
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ORG" --password-stdin
+
+            if [ "$DEPLOY_CLIP" = "true" ]; then
+              docker compose --env-file .env pull ai-clip
+              docker compose --env-file .env up -d --no-deps ai-clip
+            fi
+
+            if [ "$DEPLOY_GEMMA" = "true" ]; then
+              docker compose --env-file .env pull ai-gemma
+              docker compose --env-file .env up -d --no-deps ai-gemma
+            fi
+
+            docker image prune -f
+        env:
+          DEPLOY_CLIP: ${{ needs.changes.outputs.clip }}
+          DEPLOY_GEMMA: ${{ needs.changes.outputs.gemma }}

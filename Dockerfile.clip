@@ -1,0 +1,25 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install CPU-only PyTorch first (much smaller than the default CUDA build)
+RUN pip install --no-cache-dir \
+      torch torchvision \
+      --index-url https://download.pytorch.org/whl/cpu
+
+COPY clothing-validation/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY clothing-validation/clip_image_embedding_worker.py .
+
+# HuggingFace model cache — mount a named volume here to persist downloads:
+#   -v stylora-hf-cache:/root/.cache/huggingface
+ENV HF_HOME=/root/.cache/huggingface
+ENV CLIP_MODEL=openai/clip-vit-base-patch32
+ENV CLIP_PORT=8001
+
+EXPOSE 8001
+
+CMD python clip_image_embedding_worker.py \
+      --port $CLIP_PORT \
+      --model-id $CLIP_MODEL
