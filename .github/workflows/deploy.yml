@@ -121,6 +121,19 @@ jobs:
       (needs.changes.outputs.clip == 'true' || needs.changes.outputs.gemma == 'true')
     environment: production
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync compose file to AI server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          source: "deploy/docker-compose.yml"
+          target: ${{ secrets.VPS_DEPLOY_PATH }}
+          strip_components: 1
+
       - name: Recreate changed worker container(s)
         uses: appleboy/ssh-action@v1.0.3
         with:
