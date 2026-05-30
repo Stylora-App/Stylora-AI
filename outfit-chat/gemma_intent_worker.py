@@ -503,7 +503,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._send_bytes(200, SWAGGER_UI_HTML, "text/html; charset=utf-8")
                 return
 
-        self._json(404, {"error": "Not found"})
+        self._json(404, {"error": "Not found"})    
 
     def log_message(self, fmt, *args):  # pragma: no cover - keep stderr tidy
         LOGGER.info("%s - %s", self.address_string(), fmt % args)
