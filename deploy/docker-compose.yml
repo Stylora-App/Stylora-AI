@@ -1,0 +1,37 @@
+services:
+
+  ai-clip:
+    image: ghcr.io/${GITHUB_ORG}/stylora-ai-clip:latest
+    container_name: ai-clip
+    restart: unless-stopped
+    environment:
+      CLIP_PORT: "8001"
+      CLIP_MODEL: ${CLIP_MODEL:-openai/clip-vit-base-patch32}
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - stylora-hf-cache:/root/.cache/huggingface
+    ports:
+      - "127.0.0.1:${AI_CLIP_PORT:-8001}:8001"
+    networks: [stylora-ai-net]
+
+  ai-gemma:
+    image: ghcr.io/${GITHUB_ORG}/stylora-ai-gemma:latest
+    container_name: ai-gemma
+    restart: unless-stopped
+    environment:
+      GEMMA_PORT: "8002"
+      GEMMA_MODEL: ${GEMMA_MODEL:-Qwen/Qwen2.5-3B-Instruct}
+      HF_HOME: /root/.cache/huggingface
+    volumes:
+      - stylora-hf-cache:/root/.cache/huggingface
+    ports:
+      - "127.0.0.1:${AI_GEMMA_PORT:-8002}:8002"
+    networks: [stylora-ai-net]
+
+volumes:
+  stylora-hf-cache:
+    external: true
+
+networks:
+  stylora-ai-net:
+    external: true
