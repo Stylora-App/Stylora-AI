@@ -11,7 +11,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  OWNER: ${{ github.repository_owner }}
+  OWNER: ${{ github.repository_owner }}  # lowercased in each job before use
 
 jobs:
   changes:
@@ -44,6 +44,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lowercase image name
+        id: image
+        run: echo "name=${{ env.REGISTRY }}/$(echo '${{ env.OWNER }}' | tr '[:upper:]' '[:lower:]')/stylora-ai-clip" >> $GITHUB_OUTPUT
+
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -53,7 +57,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-clip
+          images: ${{ steps.image.outputs.name }}
           tags: |
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -65,7 +69,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-clip:latest
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:latest
           cache-to: type=inline
 
   build-gemma:
@@ -79,6 +83,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lowercase image name
+        id: image
+        run: echo "name=${{ env.REGISTRY }}/$(echo '${{ env.OWNER }}' | tr '[:upper:]' '[:lower:]')/stylora-ai-gemma" >> $GITHUB_OUTPUT
+
       - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -88,7 +96,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-gemma
+          images: ${{ steps.image.outputs.name }}
           tags: |
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
@@ -100,7 +108,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.OWNER }}/stylora-ai-gemma:latest
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:latest
           cache-to: type=inline
 
   deploy:
@@ -119,6 +127,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_SSH_PORT }}
           envs: DEPLOY_CLIP,DEPLOY_GEMMA
           script: |
             set -euo pipefail
