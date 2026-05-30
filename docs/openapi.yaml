@@ -272,16 +272,3 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ParseResponse' }
-
-  /shutdown:
-    post:
-      tags: [CLIP, Gemma]
-      summary: Gracefully shut down the worker process
-      description: >
-        Signals the HTTP server to stop. The process exits after the response
-        is sent. Used by the backend when it disposes the worker service.
-      responses:
-        "200":
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ShutdownResponse' }

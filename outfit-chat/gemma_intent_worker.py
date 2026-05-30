@@ -505,26 +505,6 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self._json(404, {"error": "Not found"})
 
-    def do_POST(self):
-        if self.path == "/shutdown":
-            self._json(200, {"ok": True})
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-            return
-
-        if self.path != "/parse":
-            self._json(404, {"error": "Not found"})
-            return
-
-        content_length = int(self.headers.get("Content-Length", "0"))
-        try:
-            payload = json.loads(self.rfile.read(content_length) or b"{}")
-            messages = payload.get("messages", [])
-            result = self.engine.parse(messages)
-            self._json(200, {"result": result})
-        except Exception as exc:  # pragma: no cover - transport guard
-            LOGGER.exception("Parse failed.")
-            self._json(500, {"error": str(exc)})
-
     def log_message(self, fmt, *args):  # pragma: no cover - keep stderr tidy
         LOGGER.info("%s - %s", self.address_string(), fmt % args)
 

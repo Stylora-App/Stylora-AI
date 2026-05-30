@@ -49,12 +49,6 @@ components:
           type: string
           nullable: true
 
-    ShutdownResponse:
-      type: object
-      properties:
-        ok:
-          type: boolean
-
 paths:
   /health:
     get:
@@ -91,14 +85,3 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmbedResponse'
-
-  /shutdown:
-    post:
-      operationId: Shutdown
-      summary: Gracefully shut down the worker
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ShutdownResponse'

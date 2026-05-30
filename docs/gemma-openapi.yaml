@@ -162,14 +162,3 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ParseResponse'
-
-  /shutdown:
-    post:
-      operationId: Shutdown
-      summary: Gracefully shut down the worker
-      responses:
-        "200":
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ShutdownResponse'
