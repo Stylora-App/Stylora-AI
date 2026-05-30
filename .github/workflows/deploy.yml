@@ -3,6 +3,16 @@ name: Build and Deploy AI Workers
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_clip:
+        description: 'Deploy CLIP worker'
+        type: boolean
+        default: true
+      deploy_gemma:
+        description: 'Deploy Gemma worker'
+        type: boolean
+        default: true
 
 env:
   REGISTRY: ghcr.io
@@ -13,11 +23,12 @@ jobs:
     name: Detect changed paths
     runs-on: ubuntu-latest
     outputs:
-      clip: ${{ steps.filter.outputs.clip }}
-      gemma: ${{ steps.filter.outputs.gemma }}
+      clip: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_clip || steps.filter.outputs.clip }}
+      gemma: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_gemma || steps.filter.outputs.gemma }}
     steps:
       - uses: actions/checkout@v4
       - id: filter
+        if: github.event_name != 'workflow_dispatch'
         uses: dorny/paths-filter@v3
         with:
           filters: |
