@@ -3,11 +3,6 @@ name: Build and Deploy AI Workers
 on:
   push:
     branches: [main]
-    paths:  
-      - 'clothing-validation/**'
-      - 'outfit-chat/**'
-      - 'Dockerfile.clip'
-      - 'Dockerfile.gemma'
 
 env:
   REGISTRY: ghcr.io
