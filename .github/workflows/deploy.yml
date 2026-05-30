@@ -3,7 +3,7 @@ name: Build and Deploy AI Workers
 on:
   push:
     branches: [main]
-    paths:
+    paths:  
       - 'clothing-validation/**'
       - 'outfit-chat/**'
       - 'Dockerfile.clip'
