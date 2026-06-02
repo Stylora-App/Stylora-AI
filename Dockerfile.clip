@@ -17,6 +17,7 @@ COPY clothing-validation/clip_image_embedding_worker.py .
 ENV HF_HOME=/root/.cache/huggingface
 ENV CLIP_MODEL=openai/clip-vit-base-patch32
 ENV CLIP_PORT=8001
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8001
 
