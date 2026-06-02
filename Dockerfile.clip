@@ -23,5 +23,4 @@ EXPOSE 8001
 
 CMD python clip_image_embedding_worker.py \
       --port $CLIP_PORT \
-      --model-id $CLIP_MODEL \
-      --dev
+      --model-id $CLIP_MODEL
