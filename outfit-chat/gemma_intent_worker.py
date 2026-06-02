@@ -164,17 +164,22 @@ class GemmaIntentEngine:
         )
 
     def parse(self, messages):
+        LOGGER.info("parse: mode=%s, ready=%s, %d messages", self.mode, self.ready, len(messages))
         if self.mode == "gemma" and self.processor is not None and self.model is not None:
             try:
-                return self._parse_with_gemma(messages)
+                result = self._parse_with_gemma(messages)
+                LOGGER.info("parse: gemma succeeded, intent=%s", result.get("intent"))
+                return result
             except Exception as exc:  # pragma: no cover - environment dependent
                 LOGGER.warning("Gemma parse failed, falling back to heuristic parsing: %s", exc)
 
         result = heuristic_parse(messages)
         result["parser_source"] = "heuristic"
+        LOGGER.info("parse: heuristic result, intent=%s", result.get("intent"))
         return result
 
     def _parse_with_gemma(self, messages):
+        LOGGER.info("_parse_with_gemma: preparing prompt, %d messages", len(messages))
         prompt_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         for message in messages:
             content = (message.get("content") or "").strip()
@@ -190,19 +195,23 @@ class GemmaIntentEngine:
         )
         inputs = self.processor(text=text, return_tensors="pt").to(self.model.device)
         input_len = inputs["input_ids"].shape[-1]
+        LOGGER.info("_parse_with_gemma: generating, input_len=%d, max_new_tokens=%d", input_len, self.max_new_tokens)
         outputs = self.model.generate(
             **inputs,
             max_new_tokens=self.max_new_tokens,
             temperature=self.temperature,
             do_sample=self.temperature > 0,
         )
+        LOGGER.info("_parse_with_gemma: generation done, decoding output")
         decoded = self.processor.decode(outputs[0][input_len:], skip_special_tokens=False)
         payload = extract_json(decoded)
         if payload is None:
+            LOGGER.warning("_parse_with_gemma: no valid JSON in response: %r", decoded[:200])
             raise ValueError("Gemma response did not contain valid JSON.")
 
         normalized = normalize_payload(payload)
         normalized["parser_source"] = "gemma"
+        LOGGER.info("_parse_with_gemma: done, intent=%s style_bucket=%s", normalized.get("intent"), normalized.get("style_bucket"))
         return normalized
 
 
@@ -503,7 +512,51 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._send_bytes(200, SWAGGER_UI_HTML, "text/html; charset=utf-8")
                 return
 
-        self._json(404, {"error": "Not found"})    
+        self._json(404, {"error": "Not found"})
+
+    def do_POST(self):
+        LOGGER.info("POST %s from %s", self.path, self.address_string())
+
+        if self.path != "/parse":
+            LOGGER.warning("POST %s: unknown path", self.path)
+            self._json(404, {"error": "Not found"})
+            return
+
+        if not self.engine.ready:
+            LOGGER.warning("POST /parse: engine not ready (mode=%s)", self.engine.mode)
+            self._json(503, {"result": None, "error": "Model not ready, try again shortly."})
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            LOGGER.info("POST /parse: read %d bytes", len(body))
+        except Exception as exc:
+            LOGGER.error("POST /parse: failed to read request body: %s", exc)
+            self._json(400, {"result": None, "error": "Failed to read request body."})
+            return
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+            LOGGER.info("POST /parse: JSON parsed successfully")
+        except json.JSONDecodeError as exc:
+            LOGGER.error("POST /parse: invalid JSON body: %s", exc)
+            self._json(400, {"result": None, "error": f"Invalid JSON: {exc}"})
+            return
+
+        messages = payload.get("messages", [])
+        LOGGER.info("POST /parse: %d messages, starting parse", len(messages))
+
+        try:
+            result = self.engine.parse(messages)
+            LOGGER.info("POST /parse: parse succeeded, intent=%s parser_source=%s", result.get("intent"), result.get("parser_source"))
+        except Exception as exc:
+            LOGGER.exception("POST /parse: parse raised unexpected error: %s", exc)
+            self._json(500, {"result": None, "error": str(exc)})
+            return
+
+        self._json(200, {"result": result, "error": None})
+        LOGGER.info("POST /parse: response sent")
 
     def log_message(self, fmt, *args):  # pragma: no cover - keep stderr tidy
         LOGGER.info("%s - %s", self.address_string(), fmt % args)

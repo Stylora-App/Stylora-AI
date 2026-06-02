@@ -3,11 +3,14 @@ import base64
 import contextlib
 import io
 import json
+import logging
 import os
 import pathlib
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+LOGGER = logging.getLogger("clip_embedding_worker")
 
 SWAGGER_UI_HTML = b"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
@@ -24,10 +27,11 @@ layout:"BaseLayout"})
 
 import torch
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor, logging
+from transformers import CLIPModel, CLIPProcessor
+from transformers import logging as transformers_logging
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-logging.set_verbosity_error()
+transformers_logging.set_verbosity_error()
 
 
 @contextlib.contextmanager
@@ -53,21 +57,27 @@ def redirect_native_output_to_devnull():
 
 
 def load_worker(model_id: str):
+    LOGGER.info("Loading CLIP model: %s", model_id)
     with redirect_native_output_to_devnull():
         model = CLIPModel.from_pretrained(model_id)
         processor = CLIPProcessor.from_pretrained(model_id)
 
     model.eval()
+    projection_dim = getattr(model.config, "projection_dim", 512)
+    LOGGER.info("CLIP model loaded (projection_dim=%d).", projection_dim)
     return model, processor
 
 
 def embed_image(model, processor, payload: dict):
+    LOGGER.info("embed_image: called")
     image_base64 = payload.get("imageBase64")
     if not image_base64:
+        LOGGER.warning("embed_image: missing imageBase64 in payload")
         raise ValueError("Image data is required.")
 
     image_bytes = base64.b64decode(image_base64)
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    LOGGER.info("embed_image: image decoded, size=%s", image.size)
     with redirect_native_output_to_devnull():
         inputs = processor(images=image, return_tensors="pt")
 
@@ -77,7 +87,9 @@ def embed_image(model, processor, payload: dict):
             image_features = model.visual_projection(pooled_output)
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
 
-    return image_features[0].cpu().tolist()
+    result = image_features[0].cpu().tolist()
+    LOGGER.info("embed_image: done, embedding_dims=%d", len(result))
+    return result
 
 
 class EmbeddingRequestHandler(BaseHTTPRequestHandler):
@@ -85,7 +97,7 @@ class EmbeddingRequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format, *args):
-        return
+        LOGGER.info("%s - %s", self.address_string(), format % args)
 
     def do_GET(self):
         if self.path == "/health":
@@ -103,21 +115,35 @@ class EmbeddingRequestHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Not found"})
 
     def do_POST(self):
+        LOGGER.info("POST %s from %s", self.path, self.address_string())
         if self.path == "/shutdown":
             self._send_json(200, {"ok": True})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
             return
 
         if self.path != "/embed":
+            LOGGER.warning("POST %s: unknown path", self.path)
             self._send_json(404, {"error": "Not found"})
             return
 
         try:
             payload = self._read_json_body()
-            embedding = embed_image(self.server.model, self.server.processor, payload)
-            self._send_json(200, {"embedding": embedding})
+            LOGGER.info("POST /embed: JSON parsed successfully")
         except Exception as exc:  # noqa: BLE001
+            LOGGER.error("POST /embed: failed to read/parse request body: %s", exc)
+            self._send_json(400, {"error": f"Invalid request body: {exc}"})
+            return
+
+        try:
+            embedding = embed_image(self.server.model, self.server.processor, payload)
+            LOGGER.info("POST /embed: embedding computed, dims=%d", len(embedding))
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.exception("POST /embed: embed_image raised: %s", exc)
             self._send_json(400, {"error": str(exc)})
+            return
+
+        self._send_json(200, {"embedding": embedding})
+        LOGGER.info("POST /embed: response sent")
 
     def _read_json_body(self):
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -149,6 +175,8 @@ def main():
     parser.add_argument("--port", required=True, type=int)
     parser.add_argument("--dev", action="store_true", help="Enable /docs and /openapi.yaml routes")
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     model, processor = load_worker(args.model_id)
     projection_dim = getattr(model.config, "projection_dim", 512)
