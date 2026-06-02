@@ -33,4 +33,5 @@ EXPOSE 8002
 
 CMD python3 gemma_intent_worker.py \
       --port $GEMMA_PORT \
-      --model-id $GEMMA_MODEL
+      --model-id $GEMMA_MODEL \
+      --dev
