@@ -1,5 +1,5 @@
 services:
-
+ 
   ai-clip:
     image: ghcr.io/${GITHUB_ORG}/stylora-ai-clip:latest
     container_name: ai-clip
