@@ -152,6 +152,7 @@ jobs:
             set -euo pipefail
             cd ${{ secrets.VPS_DEPLOY_PATH }}
             source .env
+            GITHUB_ORG=$(echo "$GITHUB_ORG" | tr '[:upper:]' '[:lower:]')
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ORG" --password-stdin
 
             if [ "$DEPLOY_CLIP" = "true" ]; then
