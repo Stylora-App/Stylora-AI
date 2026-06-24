@@ -125,8 +125,6 @@ def export_dataset(dataset_name: str, split: str, output_dir: Path, limit: int) 
                     "masterCategory": master_category.lower(),
                     "subCategory": normalize_value(row.get("subCategory")).lower(),
                     "articleType": article_type.lower(),
-                    # Source colour tags from this dataset are too noisy for the validator,
-                    # so the seed keeps the column for compatibility but strips the value.
                     "baseColour": "",
                     "season": normalize_value(row.get("season")).lower(),
                     "usage": usage.lower(),

@@ -1,9 +1,6 @@
-# Default: CPU-only image. For GPU, override:
-#   docker build --build-arg BASE_IMAGE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 ...
 ARG BASE_IMAGE=python:3.12-slim
 FROM ${BASE_IMAGE}
 
-# Install Python when using the CUDA base (which ships without it)
 RUN if ! command -v python3 >/dev/null 2>&1; then \
       apt-get update && \
       apt-get install -y --no-install-recommends python3 python3-pip && \
@@ -12,8 +9,6 @@ RUN if ! command -v python3 >/dev/null 2>&1; then \
 
 WORKDIR /app
 
-# CPU PyTorch by default; the CUDA base image will still use this but
-# you can replace the index URL with the matching CUDA wheel if needed.
 RUN pip install --no-cache-dir \
       torch torchvision \
       --index-url https://download.pytorch.org/whl/cpu
@@ -23,8 +18,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY outfit-chat/gemma_intent_worker.py .
 
-# HuggingFace model cache — mount a named volume here to persist downloads:
-#   -v stylora-hf-cache:/root/.cache/huggingface
 ENV HF_HOME=/root/.cache/huggingface
 ENV GEMMA_MODEL=Qwen/Qwen2.5-3B-Instruct
 ENV GEMMA_PORT=8002

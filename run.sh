@@ -28,11 +28,9 @@ done
 
 # ── Python interpreter & venv bootstrap ──────────────────────────────────────
 
-# Keep venv on the Linux filesystem — /mnt/c blocks certain file ops in WSL
 VENV="${STYLORA_VENV:-$HOME/.venvs/stylora-ai}"
 
 if command -v uv &>/dev/null; then
-  # Fast path: uv handles venv + pip with no system-package headaches
   if [ ! -f "$VENV/bin/python" ]; then
     echo "Creating virtual environment (uv)..."
     uv venv "$VENV"
@@ -58,7 +56,7 @@ else
 fi
 echo "Dependencies ready."
 
-# ── Graceful shutdown ─────────────────────────────────────────────────────────
+# ── Shutdown ─────────────────────────────────────────────────────────
 
 CLIP_PID=""
 GEMMA_PID=""

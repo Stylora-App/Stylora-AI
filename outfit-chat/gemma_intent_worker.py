@@ -141,7 +141,6 @@ class GemmaIntentEngine:
         from transformers import AutoModelForCausalLM
         import torch
 
-        # Strategy 1: 4-bit quantization — needs a CUDA GPU, ~13 GB VRAM for the 26B MoE model.
         if torch.cuda.is_available():
             from transformers import BitsAndBytesConfig
             LOGGER.info("CUDA available — loading with 4-bit quantization.")
@@ -154,7 +153,6 @@ class GemmaIntentEngine:
                 ),
             )
 
-        # Strategy 2: CPU, float16 — needs ~52 GB RAM for the 26B model; fine for smaller models.
         LOGGER.info("No CUDA GPU detected — loading on CPU with float16.")
         return AutoModelForCausalLM.from_pretrained(
             self.model_id,
@@ -170,7 +168,7 @@ class GemmaIntentEngine:
                 result = self._parse_with_gemma(messages)
                 LOGGER.info("parse: gemma succeeded, intent=%s", result.get("intent"))
                 return result
-            except Exception as exc:  # pragma: no cover - environment dependent
+            except Exception as exc: 
                 LOGGER.warning("Gemma parse failed, falling back to heuristic parsing: %s", exc)
 
         result = heuristic_parse(messages)
@@ -558,7 +556,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._json(200, {"result": result, "error": None})
         LOGGER.info("POST /parse: response sent")
 
-    def log_message(self, fmt, *args):  # pragma: no cover - keep stderr tidy
+    def log_message(self, fmt, *args):  
         LOGGER.info("%s - %s", self.address_string(), fmt % args)
 
 
